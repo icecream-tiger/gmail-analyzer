@@ -691,7 +691,7 @@
             let allMessages = [];
             let pageToken = null;
             let pageCount = 0;
-            const maxPages = 100; // Limit to ~1000 emails for performance
+            const maxPages = 100; // Limit to ~10000 emails for performance
             
             do {
                 const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100${pageToken ? '&pageToken=' + pageToken : ''}`;
