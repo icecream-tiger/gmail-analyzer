@@ -694,7 +694,7 @@
             const maxPages = 1000; // Limit to ~100000 emails for performance
             
             do {
-                const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100${pageToken ? '&pageToken=' + pageToken : ''}`;
+                const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&labelIds=INBOX&SENT&DRAFT&labelIds=SPAM&labelIds=TRASH${pageToken ? '&pageToken=' + pageToken : ''}`;
                 const response = await fetch(url, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
