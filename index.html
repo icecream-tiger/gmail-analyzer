@@ -5,6 +5,80 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gmail Storage Analyzer - Free & Private</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    
+    <!-- Sentry Error Tracking & Analytics -->
+    <script src="https://browser.sentry-cdn.com/7.119.0/bundle.min.js" crossorigin="anonymous"></script>
+    <script>
+        // Initialize Sentry for error tracking and anonymous analytics
+        Sentry.init({
+            dsn: "https://a7eeea909dcb42730a0db652a964ce5a@o4510296406884352.ingest.us.sentry.io/4510296409047040", // Replace with your actual Sentry DSN
+            integrations: [
+                new Sentry.BrowserTracing({
+                    tracingOrigins: ['icecreamtiger.com', /^\//],
+                })
+            ],
+            
+            // Performance monitoring - 100% of transactions
+            tracesSampleRate: 1.0,
+            
+            // App info
+            release: "gmail-analyzer@1.0.0",
+            environment: "production",
+            
+            // Privacy-first: scrub sensitive data
+            beforeSend(event, hint) {
+                // Remove email addresses from error messages
+                if (event.message) {
+                    event.message = event.message.replace(/[\w.-]+@[\w.-]+\.\w+/g, '[EMAIL]');
+                }
+                
+                // Remove sensitive data from breadcrumbs
+                if (event.breadcrumbs) {
+                    event.breadcrumbs.forEach(breadcrumb => {
+                        if (breadcrumb.message) {
+                            breadcrumb.message = breadcrumb.message.replace(/[\w.-]+@[\w.-]+\.\w+/g, '[EMAIL]');
+                        }
+                    });
+                }
+                
+                // Remove authorization headers
+                if (event.request && event.request.headers) {
+                    delete event.request.headers['Authorization'];
+                    delete event.request.headers['authorization'];
+                    delete event.request.headers['Cookie'];
+                }
+                
+                return event;
+            },
+            
+            // Don't track Gmail API URLs (privacy)
+            ignoreErrors: [
+                'gmail.googleapis.com',
+                'accounts.google.com'
+            ]
+        });
+        
+        // Set anonymous user ID (persistent across sessions)
+        (function() {
+            let anonId = localStorage.getItem('sentry_anon_id');
+            if (!anonId) {
+                anonId = 'user_' + Math.random().toString(36).substr(2, 12) + Date.now().toString(36);
+                localStorage.setItem('sentry_anon_id', anonId);
+            }
+            
+            Sentry.setUser({
+                id: anonId
+                // No email, name, or PII
+            });
+            
+            // Set app context
+            Sentry.setContext('app', {
+                name: 'Gmail Storage Analyzer',
+                version: '1.0.0'
+            });
+        })();
+    </script>
+    
     <style>
         * {
             margin: 0;
@@ -172,8 +246,14 @@
             border: 2px solid #e0e0e0;
             border-radius: 12px;
             position: relative;
-            overflow: hidden;
+            overflow: auto;
             background: #fafafa;
+        }
+        
+        .treemap-inner {
+            position: relative;
+            min-width: 100%;
+            min-height: 100%;
         }
         
         .treemap-block {
@@ -524,8 +604,11 @@
             </button>
             
             <p style="margin-top: 20px; font-size: 12px; color: #999;">
-                We only request read-only access to analyze your emails.<br>
-                You can revoke access anytime in your Google Account settings.
+                We request read-only access to analyze your emails. Deletion happens in Gmail's interface.<br>
+                <a href="/privacy.html" style="color: #667eea;">Privacy Policy</a> | 
+                You can revoke access anytime in your 
+                <a href="https://myaccount.google.com/permissions" target="_blank" style="color: #667eea;">
+                Google Account settings</a>.
             </p>
         </div>
         
@@ -533,9 +616,9 @@
             <div class="info-banner" id="infoBanner" style="display: none;">
                 <div class="info-banner-icon">ℹ️</div>
                 <div class="info-banner-text">
-                    <strong>About Storage Calculation:</strong> Gmail storage includes emails, attachments, and Google Drive files. 
-                    This tool analyzes email metadata only. Use the year dropdown to analyze specific years (e.g., find old 2015 emails). 
-                    For complete accuracy, select "Complete (All emails)" - but note this may take 5-10 minutes for large mailboxes.
+                    <strong>About Storage & Deletion:</strong> This tool analyzes Gmail storage with read-only access. 
+                    To delete emails, click "Open All in Gmail" which filters the exact emails in Gmail's interface. 
+                    Then use Gmail's native delete - this keeps your data secure and gives you full control.
                 </div>
             </div>
             
@@ -613,23 +696,36 @@
         </div>
         <div class="detail-content" id="detailContent"></div>
         <div class="action-buttons">
-            <button class="btn btn-primary" style="width: 100%;" onclick="openSelectedInGmail()">
+            <button class="btn btn-primary" style="width: 100%; background: #4285f4;" onclick="openGroupInGmail()">
+                📧 Open All in Gmail (<span id="groupCount">0</span> emails)
+            </button>
+            <button class="btn btn-secondary" style="width: 100%; margin-top: 10px;" onclick="openSelectedInGmail()">
                 📧 Open Selected in Gmail (<span id="selectedCount">0</span>)
             </button>
+            <div style="margin-top: 15px; padding: 12px; background: #f0f7ff; border-radius: 8px; font-size: 13px; color: #1967d2; line-height: 1.5;">
+                <strong>💡 How to delete:</strong><br>
+                1. Click "Open All in Gmail" above<br>
+                2. Gmail opens with all these emails filtered<br>
+                3. Select all → Click Delete<br>
+                4. Done! Emails moved to Trash (recoverable 30 days)
+            </div>
         </div>
     </div>
 
     <script>
         // CONFIGURATION - Replace with your actual Client ID from Google Cloud Console
         const CLIENT_ID = '535589785401-2efmknqsh6j6rmr8ch47bnaj39l0n8qc.apps.googleusercontent.com';
-        const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
+        const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly'; // Read-only is enough!
         
         let accessToken = null;
         let tokenClient = null;
         let emailData = [];
         let currentView = 'sender';
         let currentDrilldown = null;
+        let currentDrilldownLevel2 = null; // For year > month > day drill-down
         let selectedEmails = new Set();
+        let detailEmails = []; // Store current group emails for bulk delete
+        let currentGroupQuery = ''; // Store Gmail search query for current group
         
         // Initialize Google Identity Services
         function initGoogleAuth() {
@@ -673,6 +769,13 @@
                       '6. Replace CLIENT_ID in the code\n\n' +
                       'For now, showing demo data...');
                 
+                // Track demo mode usage
+                Sentry.addBreadcrumb({
+                    category: 'auth',
+                    message: 'Demo mode activated',
+                    level: 'info'
+                });
+                
                 // Demo mode
                 accessToken = 'demo_token';
                 document.getElementById('loginSection').style.display = 'none';
@@ -680,6 +783,13 @@
                 populateYearFilter();
                 return;
             }
+            
+            // Track sign-in attempt
+            Sentry.addBreadcrumb({
+                category: 'auth',
+                message: 'User initiated sign-in',
+                level: 'info'
+            });
             
             if (!tokenClient) {
                 initGoogleAuth();
@@ -693,21 +803,54 @@
                 return;
             }
             
+            // Start performance tracking
+            const transaction = Sentry.startTransaction({
+                name: 'Load Emails',
+                op: 'user.action',
+                tags: {
+                    feature: 'email_analysis'
+                }
+            });
+            
             document.getElementById('loading').style.display = 'block';
             document.getElementById('treemapContainer').innerHTML = '';
             document.getElementById('loadBtn').disabled = true;
             
-            if (accessToken === 'demo_token') {
-                await loadDemoData();
-                return;
-            }
-            
             try {
-                await fetchRealEmails();
+                if (accessToken === 'demo_token') {
+                    await loadDemoData();
+                    transaction.setTag('mode', 'demo');
+                } else {
+                    await fetchRealEmails();
+                    transaction.setTag('mode', 'real');
+                }
+                
+                transaction.setStatus('ok');
+                
+                // Track successful analysis
+                Sentry.addBreadcrumb({
+                    category: 'app.usage',
+                    message: 'Email analysis completed',
+                    level: 'info',
+                    data: {
+                        email_count: emailData.length,
+                        total_size_mb: Math.round(emailData.reduce((s, e) => s + e.size, 0) / 1024 / 1024),
+                        year_filter: document.getElementById('yearFilter').value
+                    }
+                });
+                
             } catch (error) {
                 console.error('Error loading emails:', error);
+                Sentry.captureException(error, {
+                    tags: {
+                        feature: 'email_load'
+                    }
+                });
+                transaction.setStatus('error');
                 alert('Error loading emails: ' + error.message + '\n\nLoading demo data instead.');
                 await loadDemoData();
+            } finally {
+                transaction.finish();
             }
         }
         
@@ -906,6 +1049,15 @@
         function switchView(view) {
             currentView = view;
             currentDrilldown = null;
+            currentDrilldownLevel2 = null;
+            
+            // Track view changes
+            Sentry.addBreadcrumb({
+                category: 'ui.interaction',
+                message: `Switched to ${view} view`,
+                level: 'info',
+                data: { view: view }
+            });
             
             document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
@@ -1054,6 +1206,21 @@
             return date.getFullYear().toString();
         }
         
+        function getMonthGroup(date) {
+            const months = ['January', 'February', 'March', 'April', 'May', 'June', 
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+            return months[date.getMonth()] + ' ' + date.getFullYear();
+        }
+        
+        function getDayGroup(date) {
+            return date.toLocaleDateString('en-US', { 
+                weekday: 'short', 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }
+        
         function getSizeGroup(size) {
             if (size < 100000) return '< 100 KB';
             if (size < 1000000) return '100 KB - 1 MB';
@@ -1063,21 +1230,41 @@
         }
         
         function handleBlockClick(key, group) {
-            if (currentDrilldown) {
+            if (currentView === 'year' && !currentDrilldown) {
+                // Year view level 1: drill into months
+                currentDrilldown = key;
+                currentDrilldownLevel2 = null;
+                renderTreemap();
+            } else if (currentView === 'year' && currentDrilldown && !currentDrilldownLevel2) {
+                // Year view level 2: drill into days
+                currentDrilldownLevel2 = key;
+                renderTreemap();
+            } else if (currentDrilldownLevel2 || currentDrilldown) {
+                // At email level: show detail panel
                 showEmailDetails(group.data);
             } else {
+                // Other views: drill down once then show emails
                 currentDrilldown = key;
+                currentDrilldownLevel2 = null;
                 renderTreemap();
             }
         }
         
         function navigateToRoot() {
             currentDrilldown = null;
+            currentDrilldownLevel2 = null;
+            renderTreemap();
+        }
+        
+        function navigateToLevel1(level1Key) {
+            currentDrilldown = level1Key;
+            currentDrilldownLevel2 = null;
             renderTreemap();
         }
         
         function showEmailDetails(emails) {
             selectedEmails.clear();
+            detailEmails = emails; // Store for bulk actions
             
             // Sort emails by date (newest first) for better UX
             emails.sort((a, b) => b.date - a.date);
@@ -1089,6 +1276,9 @@
             
             title.textContent = emails.length === 1 ? 'Email Details' : 'Email Group';
             subtitle.textContent = `${emails.length} email(s) - ${formatSize(emails.reduce((s, e) => s + e.size, 0))}`;
+            
+            // Update group count
+            document.getElementById('groupCount').textContent = emails.length;
             
             content.innerHTML = emails.map(email => `
                 <div class="email-item" data-email-id="${email.id}" onclick="toggleEmailSelection('${email.id}')">
@@ -1133,7 +1323,8 @@
         }
         
         function updateSelectedCount() {
-            document.getElementById('selectedCount').textContent = selectedEmails.size;
+            const count = selectedEmails.size;
+            document.getElementById('selectedCount').textContent = count;
         }
         
         function closeDetailPanel() {
@@ -1169,6 +1360,17 @@
                 return;
             }
             
+            // Track export usage
+            Sentry.addBreadcrumb({
+                category: 'app.action',
+                message: 'Data export',
+                level: 'info',
+                data: {
+                    email_count: emailData.length,
+                    year_filter: document.getElementById('yearFilter').value
+                }
+            });
+            
             const yearFilter = document.getElementById('yearFilter').value;
             const yearSuffix = yearFilter !== 'all' ? `_${yearFilter}` : '';
             
@@ -1193,6 +1395,13 @@
             a.download = `gmail_storage_analysis${yearSuffix}_${new Date().toISOString().split('T')[0]}.csv`;
             a.click();
             URL.revokeObjectURL(url);
+            
+            // Track successful export
+            Sentry.captureMessage('CSV export completed', {
+                level: 'info',
+                tags: { feature: 'export' },
+                extra: { row_count: emailData.length }
+            });
         }
         
         function signOut() {
@@ -1219,6 +1428,22 @@
             if (typeof google !== 'undefined') {
                 initGoogleAuth();
             }
+            
+            // Track page load
+            Sentry.addBreadcrumb({
+                category: 'navigation',
+                message: 'App loaded',
+                level: 'info'
+            });
+        });
+        
+        // Track errors
+        window.addEventListener('error', (event) => {
+            Sentry.captureException(event.error);
+        });
+        
+        window.addEventListener('unhandledrejection', (event) => {
+            Sentry.captureException(event.reason);
         });
     </script>
 </body>
