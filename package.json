@@ -1,0 +1,27 @@
+{
+  "name": "gmailwindirstat",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/icecream-tiger/gmail-analyzer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/icecream-tiger/gmail-analyzer/issues"
+  },
+  "homepage": "https://github.com/icecream-tiger/gmail-analyzer#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
+  }
+}
