@@ -276,42 +276,6 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
         
-        .context-menu {
-            position: fixed;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            padding: 8px 0;
-            z-index: 10000;
-            min-width: 200px;
-            display: none;
-        }
-        
-        .context-menu.show {
-            display: block;
-        }
-        
-        .context-menu-item {
-            padding: 10px 16px;
-            cursor: pointer;
-            transition: background 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 14px;
-        }
-        
-        .context-menu-item:hover {
-            background: #f0f2ff;
-        }
-        
-        .context-menu-divider {
-            height: 1px;
-            background: #e0e0e0;
-            margin: 4px 0;
-        }
-        
         .block-label {
             color: white;
             font-size: 13px;
@@ -704,8 +668,28 @@
                 </div>
             </div>
             
-            <div id="breadcrumb" class="breadcrumb" style="display: none;">
+            <div class="breadcrumb" id="breadcrumb" style="display: none;">
                 <span class="breadcrumb-item" onclick="navigateToRoot()">All Emails</span>
+            </div>
+            
+            <!-- Toolbar for current group actions -->
+            <div id="groupToolbar" class="breadcrumb" style="display: none; background: #f0f7ff; border-color: #1967d2;">
+                <div style="display: flex; align-items: center; gap: 15px; width: 100%;">
+                    <div style="flex: 1;">
+                        <strong style="color: #1967d2;">Current Group:</strong>
+                        <span id="toolbarGroupName" style="color: #333; margin-left: 8px;">-</span>
+                        <span id="toolbarGroupStats" style="color: #666; margin-left: 8px; font-size: 13px;">-</span>
+                    </div>
+                    <button class="btn btn-secondary" onclick="viewCurrentGroupEmails()" style="padding: 6px 12px; font-size: 13px;">
+                        👁️ View All Emails
+                    </button>
+                    <button class="btn btn-primary" onclick="openCurrentGroupInGmail()" style="padding: 6px 12px; font-size: 13px; background: #4285f4;">
+                        📧 Open in Gmail
+                    </button>
+                    <button class="btn btn-secondary" onclick="exportCurrentGroup()" style="padding: 6px 12px; font-size: 13px;">
+                        📊 Export
+                    </button>
+                </div>
             </div>
             
             <div class="visualization">
@@ -748,30 +732,10 @@
         </div>
     </div>
     
-    <!-- Context Menu -->
-    <div id="contextMenu" class="context-menu">
-        <div class="context-menu-item" onclick="contextMenuAction('drill')">
-            <span>🔍</span>
-            <span>Drill into this group</span>
-        </div>
-        <div class="context-menu-item" onclick="contextMenuAction('view')">
-            <span>👁️</span>
-            <span>View all emails</span>
-        </div>
-        <div class="context-menu-divider"></div>
-        <div class="context-menu-item" onclick="contextMenuAction('gmail')">
-            <span>📧</span>
-            <span>Open in Gmail</span>
-        </div>
-        <div class="context-menu-item" onclick="contextMenuAction('export')">
-            <span>📊</span>
-            <span>Export this group</span>
-        </div>
-    </div>
-
     <script>
         // CONFIGURATION - Replace with your actual Client ID from Google Cloud Console
         const CLIENT_ID = '535589785401-2efmknqsh6j6rmr8ch47bnaj39l0n8qc.apps.googleusercontent.com';
+        //const CLIENT_ID = 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com';
         const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly'; // Read-only is enough!
         
         let accessToken = null;
@@ -783,7 +747,7 @@
         let selectedEmails = new Set();
         let detailEmails = []; // Store current group emails for bulk delete
         let currentGroupQuery = ''; // Store Gmail search query for current group
-        let contextMenuTarget = null; // Store the block that was right-clicked
+        let currentGroupData = null; // Store current group's full data for toolbar actions
         
         // Initialize Google Identity Services
         function initGoogleAuth() {
@@ -1238,6 +1202,9 @@
                     <div class="block-count">${block.group.data.length} email${block.group.data.length !== 1 ? 's' : ''}</div>
                 `;
                 
+                // Add tooltip hint on hover
+                blockEl.title = `Left-click: Drill down\nRight-click: More options`;
+                
                 blockEl.onclick = () => handleBlockClick(block.key, block.group);
                 
                 container.appendChild(blockEl);
@@ -1292,11 +1259,15 @@
                 // Year view level 1: drill into months
                 currentDrilldown = key;
                 currentDrilldownLevel2 = null;
+                currentGroupData = group;
                 renderTreemap();
+                updateGroupToolbar();
             } else if (currentView === 'year' && currentDrilldown && !currentDrilldownLevel2) {
                 // Year view level 2: drill into days
                 currentDrilldownLevel2 = key;
+                currentGroupData = group;
                 renderTreemap();
+                updateGroupToolbar();
             } else if (currentDrilldownLevel2 || currentDrilldown) {
                 // At email level: show detail panel
                 showEmailDetails(group.data);
@@ -1304,8 +1275,115 @@
                 // Other views: drill down once then show emails
                 currentDrilldown = key;
                 currentDrilldownLevel2 = null;
+                currentGroupData = group;
                 renderTreemap();
+                updateGroupToolbar();
             }
+        }
+        
+        function updateGroupToolbar() {
+            const toolbar = document.getElementById('groupToolbar');
+            
+            if (!currentDrilldown) {
+                // At root level - hide toolbar
+                toolbar.style.display = 'none';
+                currentGroupData = null;
+                return;
+            }
+            
+            // Show toolbar with current group info
+            toolbar.style.display = 'flex';
+            
+            let groupName = currentDrilldown;
+            if (currentDrilldownLevel2) {
+                groupName = `${currentDrilldown} > ${currentDrilldownLevel2}`;
+            }
+            
+            const emailCount = currentGroupData ? currentGroupData.data.length : 0;
+            const totalSize = currentGroupData ? currentGroupData.data.reduce((s, e) => s + e.size, 0) : 0;
+            
+            document.getElementById('toolbarGroupName').textContent = groupName;
+            document.getElementById('toolbarGroupStats').textContent = 
+                `(${emailCount.toLocaleString()} emails, ${formatSize(totalSize)})`;
+        }
+        
+        function viewCurrentGroupEmails() {
+            if (!currentGroupData) return;
+            showEmailDetails(currentGroupData.data);
+            
+            Sentry.addBreadcrumb({
+                category: 'ui.interaction',
+                message: 'View group emails from toolbar',
+                level: 'info',
+                data: { email_count: currentGroupData.data.length }
+            });
+        }
+        
+        function openCurrentGroupInGmail() {
+            if (!currentGroupData) return;
+            
+            const query = buildGmailSearchQuery(currentGroupData.data);
+            if (!query) {
+                alert('Could not generate Gmail search query for this group.');
+                return;
+            }
+            
+            const encodedQuery = encodeURIComponent(query);
+            const gmailUrl = `https://mail.google.com/mail/u/0/#search/${encodedQuery}`;
+            
+            window.open(gmailUrl, '_blank');
+            
+            Sentry.addBreadcrumb({
+                category: 'app.action',
+                message: 'Open group in Gmail from toolbar',
+                level: 'info',
+                data: { email_count: currentGroupData.data.length, query: query }
+            });
+            
+            setTimeout(() => {
+                alert(`✅ Gmail opened with ${currentGroupData.data.length.toLocaleString()} emails!\n\n` +
+                      `📝 To delete them:\n` +
+                      `1. Select all (click checkbox at top)\n` +
+                      `2. Click Delete button 🗑️\n` +
+                      `3. Emails move to Trash (recoverable for 30 days)`);
+            }, 1000);
+        }
+        
+        function exportCurrentGroup() {
+            if (!currentGroupData) return;
+            
+            const emails = currentGroupData.data;
+            const csv = [
+                ['Sender', 'Subject', 'Size (bytes)', 'Date', 'Year', 'Size (human)'].join(','),
+                ...emails.map(email => 
+                    [
+                        `"${email.sender.replace(/"/g, '""')}"`,
+                        `"${email.subject.replace(/"/g, '""')}"`,
+                        email.size,
+                        email.date.toISOString(),
+                        email.date.getFullYear(),
+                        `"${formatSize(email.size)}"`
+                    ].join(',')
+                )
+            ].join('\n');
+            
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            const groupName = currentDrilldownLevel2 
+                ? `${currentDrilldown}_${currentDrilldownLevel2}` 
+                : currentDrilldown;
+            a.download = `gmail_${groupName.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            Sentry.captureMessage('Group export from toolbar', {
+                level: 'info',
+                tags: { feature: 'export_group' },
+                extra: { row_count: emails.length }
+            });
         }
         
         function showContextMenu(event, key, group) {
@@ -1408,13 +1486,32 @@
         function navigateToRoot() {
             currentDrilldown = null;
             currentDrilldownLevel2 = null;
+            currentGroupData = null;
             renderTreemap();
+            updateGroupToolbar();
         }
         
         function navigateToLevel1(level1Key) {
             currentDrilldown = level1Key;
             currentDrilldownLevel2 = null;
+            // Find the group data for this level
+            const groups = {};
+            emailData.forEach(email => {
+                const year = getYearGroup(email.date);
+                if (year === level1Key) {
+                    const month = getMonthGroup(email.date);
+                    if (!groups[month]) {
+                        groups[month] = { size: 0, data: [] };
+                    }
+                    groups[month].size += email.size;
+                    groups[month].data.push(email);
+                }
+            });
+            // Use all emails from this year
+            const allEmails = Object.values(groups).flatMap(g => g.data);
+            currentGroupData = { size: allEmails.reduce((s, e) => s + e.size, 0), data: allEmails };
             renderTreemap();
+            updateGroupToolbar();
         }
         
         function showEmailDetails(emails) {
@@ -1590,6 +1687,13 @@
                 message: 'App loaded',
                 level: 'info'
             });
+        });
+        
+        // Hide context menu when clicking elsewhere
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#contextMenu') && !e.target.closest('.treemap-block')) {
+                hideContextMenu();
+            }
         });
         
         // Track errors
