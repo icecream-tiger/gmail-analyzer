@@ -81,51 +81,75 @@
     
     <style>
         * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
         }
-        
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
         }
-        
+
         .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
+        max-width: 900px;
+        width: 100%;
+        margin-top: 60px;
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        animation: fadeIn 0.6s ease-out;
         }
-        
+
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 40px 20px 50px 20px;
+        text-align: center;
         }
-        
+
         .header h1 {
-            font-size: 32px;
-            margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        font-size: 36px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
         }
-        
+
+        .header h1 img {
+        width: 80px;
+        height: 80px;
+        border-radius: 16px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+        background: white;
+        padding: 6px;
+        }
+
+        .header h3 {
+        margin-top: 14px;
+        font-weight: 500;
+        font-size: 22px;
+        opacity: 0.95;
+        }
+
         .header p {
-            opacity: 0.9;
-            font-size: 16px;
+        margin-top: 10px;
+        font-size: 15px;
+        opacity: 0.85;
+        font-weight: 500;
         }
-        
-        .privacy-badge {
-            display: inline-block;
-            background: rgba(255,255,255,0.2);
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            margin-top: 10px;
+
+        @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
         }
         
         .controls {
@@ -570,9 +594,12 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>📊 Gmail Storage Analyzer</h1>
-            <p>Free, open-source, and 100% private - runs entirely in your browser</p>
-            <div class="privacy-badge">🔒 Your emails never leave your device</div>
+        <h1>
+            <img src="icecream-tiger.png" alt="Icecream Tiger Logo" />
+            Icecream Tiger
+        </h1>
+        <h3>Gmail Storage Analyzer</h3>
+        <p>🔒 100% local — nothing leaves your browser</p>
         </div>
         
         <div id="loginSection" class="login-container">
@@ -1319,19 +1346,110 @@
             });
         }
         
+        function buildGmailSearchQuery(emails) {
+            if (!emails || emails.length === 0) return '';
+            
+            // Get common attributes of the email group
+            const firstEmail = emails[0];
+            let query = '';
+            
+            // Check if all emails are from same sender
+            const allSameSender = emails.every(e => e.sender === firstEmail.sender);
+            if (allSameSender && currentView === 'sender') {
+                query = `from:${firstEmail.sender}`;
+            }
+            
+            // Check if all emails are from same year
+            const allSameYear = emails.every(e => e.date.getFullYear() === firstEmail.date.getFullYear());
+            if (allSameYear && currentView === 'year') {
+                const year = firstEmail.date.getFullYear();
+                query = `after:${year}/01/01 before:${year}/12/31`;
+                
+                // If we're drilled down to month
+                if (currentDrilldown && currentDrilldownLevel2) {
+                    const month = firstEmail.date.getMonth() + 1;
+                    const lastDay = new Date(year, month, 0).getDate();
+                    query = `after:${year}/${month}/01 before:${year}/${month}/${lastDay}`;
+                }
+            }
+            
+            // Check if all emails are in same size range
+            if (currentView === 'size') {
+                const sizeGroup = getSizeGroup(firstEmail.size);
+                if (sizeGroup === '< 100 KB') {
+                    query = 'smaller:100K';
+                } else if (sizeGroup === '100 KB - 1 MB') {
+                    query = 'larger:100K smaller:1M';
+                } else if (sizeGroup === '1 MB - 5 MB') {
+                    query = 'larger:1M smaller:5M';
+                } else if (sizeGroup === '5 MB - 10 MB') {
+                    query = 'larger:5M smaller:10M';
+                } else if (sizeGroup === '> 10 MB') {
+                    query = 'larger:10M';
+                }
+            }
+            
+            // For time-based groups
+            if (currentView === 'time') {
+                const timeGroup = getTimeGroup(firstEmail.date);
+                const now = new Date();
+                
+                if (timeGroup === 'Last 7 days') {
+                    const date7 = new Date(now);
+                    date7.setDate(date7.getDate() - 7);
+                    query = `after:${date7.getFullYear()}/${date7.getMonth()+1}/${date7.getDate()}`;
+                } else if (timeGroup === 'Last 30 days') {
+                    const date30 = new Date(now);
+                    date30.setDate(date30.getDate() - 30);
+                    query = `after:${date30.getFullYear()}/${date30.getMonth()+1}/${date30.getDate()}`;
+                } else if (timeGroup === 'Last year') {
+                    const date365 = new Date(now);
+                    date365.setDate(date365.getDate() - 365);
+                    query = `after:${date365.getFullYear()}/${date365.getMonth()+1}/${date365.getDate()}`;
+                } else if (timeGroup === 'Over 1 year ago') {
+                    const date365 = new Date(now);
+                    date365.setDate(date365.getDate() - 365);
+                    query = `before:${date365.getFullYear()}/${date365.getMonth()+1}/${date365.getDate()}`;
+                }
+            }
+            
+            // Add year filter if active
+            const yearFilter = document.getElementById('yearFilter')?.value;
+            if (yearFilter && yearFilter !== 'all' && !query.includes('after:')) {
+                query += (query ? ' ' : '') + `after:${yearFilter}/01/01 before:${yearFilter}/12/31`;
+            }
+            
+            // Debug: Log what query was generated
+            console.log('Generated Gmail query:', query);
+            console.log('For emails:', emails.length, 'from view:', currentView);
+            
+            return query;
+        }
+
         function openCurrentGroupInGmail() {
-            if (!currentGroupData) return;
+            if (!currentGroupData) {
+                console.error('No currentGroupData available');
+                alert('No group data available. Try clicking a block first.');
+                return;
+            }
+            
+            console.log('Opening group with', currentGroupData.data.length, 'emails');
             
             const query = buildGmailSearchQuery(currentGroupData.data);
             if (!query) {
-                alert('Could not generate Gmail search query for this group.');
+                console.error('Could not build query from group data');
+                alert('Could not generate Gmail search query for this group.\n\nTry using a different view or drilling down further.');
                 return;
             }
             
             const encodedQuery = encodeURIComponent(query);
             const gmailUrl = `https://mail.google.com/mail/u/0/#search/${encodedQuery}`;
             
-            window.open(gmailUrl, '_blank');
+            console.log('Opening Gmail URL:', gmailUrl);
+            console.log('Decoded query:', query);
+            
+            // Try to open - check if popup was blocked
+            const newWindow = window.open(gmailUrl, '_blank');
             
             Sentry.addBreadcrumb({
                 category: 'app.action',
@@ -1340,12 +1458,35 @@
                 data: { email_count: currentGroupData.data.length, query: query }
             });
             
+            // Check if popup was blocked
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                // Popup blocked - show URL to copy
+                console.error('Popup blocked');
+                const copyUrl = confirm(`⚠️ Popup was blocked!\n\n` +
+                      `Click OK to copy the Gmail URL to clipboard, then paste it in a new tab.\n\n` +
+                      `Or click Cancel and allow popups for this site.`);
+                
+                if (copyUrl) {
+                    // Try to copy to clipboard
+                    navigator.clipboard.writeText(gmailUrl).then(() => {
+                        alert('✅ URL copied to clipboard!\n\nPaste it in a new browser tab.');
+                    }).catch(() => {
+                        // Fallback: show URL in alert
+                        prompt('Copy this URL and paste in your browser:', gmailUrl);
+                    });
+                }
+                return;
+            }
+            
+            // Success - show helpful tip
             setTimeout(() => {
                 alert(`✅ Gmail opened with ${currentGroupData.data.length.toLocaleString()} emails!\n\n` +
+                      `Query used: ${query}\n\n` +
                       `📝 To delete them:\n` +
                       `1. Select all (click checkbox at top)\n` +
-                      `2. Click Delete button 🗑️\n` +
-                      `3. Emails move to Trash (recoverable for 30 days)`);
+                      `2. Click "Select all conversations that match this search"\n` +
+                      `3. Click Delete button 🗑️\n` +
+                      `4. Emails move to Trash (recoverable for 30 days)`);
             }, 1000);
         }
         
